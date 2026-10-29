@@ -30,7 +30,7 @@ footer{max-width:1180px;margin:0 auto;padding:0 18px 28px;color:var(--muted);fon
 <h3>01 · Materiales del proyecto</h3>
 <div class="section"><label for="voice">Narración principal (obligatoria)</label><input id="voice" type="file" accept="audio/*"><div class="help">MP3, WAV, M4A u otro audio compatible con tu navegador.</div></div>
 <div class="section"><label for="images">Imágenes en orden</label><input id="images" type="file" accept="image/*" multiple><div class="help">Selecciona varias imágenes. Añade palabras clave a cada una para que el montaje elija imágenes relacionadas con cada fragmento del guion; puedes reordenarlas abajo.</div><div id="imageList" class="list"></div><div class="help">Ejemplo de palabras clave: templo, sacerdote, ritual, noche. Separa varias palabras con comas. Si las dejas vacías, esa imagen se usará como alternativa cronológica.</div></div>
-<div class="section"><label for="script">Guion / texto de narración (opcional)</label><textarea id="script" placeholder="Pega aquí el guion completo. Se usará para crear subtítulos aproximados. Para mayor precisión, el texto debe coincidir con el audio."></textarea></div>
+<div class="section"><label for="script">Guion / texto de narración (opcional)</label><textarea id="script" placeholder="Pega aquí el guion completo. Sin marcas de tiempo, los subtítulos serán aproximados."></textarea></div><div class="section"><label for="srtFile">Subtítulos sincronizados (.SRT, opcional)</label><input id="srtFile" type="file" accept=".srt,text/plain"><div class="help" id="srtStatus">Importa un SRT sincronizado con la narración para usar sus tiempos reales.</div></div>
 <div class="row">
 <div class="section"><label for="music">Música propia (opcional)</label><input id="music" type="file" accept="audio/*"></div>
 <div class="section"><label for="sfx">Efectos propios (opcional)</label><input id="sfx" type="file" accept="audio/*" multiple></div>
@@ -59,7 +59,7 @@ footer{max-width:1180px;margin:0 auto;padding:0 18px 28px;color:var(--muted);fon
 (() => {
 const $=id=>document.getElementById(id);
 const canvas=$('canvas'), ctx=canvas.getContext('2d');
-let imageFiles=[], images=[], imageTags=[], audioEl=null, audioUrl=null, musicEl=null, musicUrl=null, sfxEls=[], scenes=[], raf=0, playing=false, startAt=0, offset=0, exportBusy=false, lastDrawAt=0;
+let imageFiles=[], images=[], imageTags=[], audioEl=null, audioUrl=null, musicEl=null, musicUrl=null, sfxEls=[], scenes=[], raf=0, playing=false, startAt=0, offset=0, exportBusy=false, lastDrawAt=0, importedSubs=null;
 const status=t=>$('status').textContent=t;
 const progress=v=>$('progress').style.width=Math.max(0,Math.min(100,v))+'%';
 $('musicVol').addEventListener('input',()=>{ $('volLabel').textContent=$('musicVol').value+'%'; if(musicEl)musicEl.volume=Number($('musicVol').value)/100; });
@@ -142,16 +142,17 @@ function draw(t){
  ctx.fillStyle='#d83747';ctx.fillRect(0,canvas.height-5,canvas.width*Math.min(1,t/duration()),5);
 }
 let subtitleCache=[];
+function parseSrt(raw){
+ const norm=raw.replace(/\r/g,'').trim(); if(!norm)return [];
+ return norm.split(/\n\s*\n/).map(block=>{const lines=block.split('\n');const ti=lines.findIndex(x=>x.includes('-->'));if(ti<0)return null;const m=lines[ti].match(/(\d{2}):(\d{2}):(\d{2})[,\.](\d{1,3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,\.](\d{1,3})/);if(!m)return null;const sec=(h,mi,se,ms)=>+h*3600 + +mi*60 + +se + Number(('0.'+ms.padEnd(3,'0')));return {start:sec(m[1],m[2],m[3],m[4]),end:sec(m[5],m[6],m[7],m[8]),text:lines.slice(ti+1).join(' ').replace(/<[^>]+>/g,'').trim()};}).filter(x=>x&&x.text&&x.end>x.start);
+}
+$('srtFile').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f){importedSubs=null;return;}try{const parsed=parseSrt(await f.text());if(!parsed.length)throw new Error('Formato SRT no válido');importedSubs=parsed;$('srtStatus').textContent=`SRT cargado: ${parsed.length} subtítulos con tiempos reales.`;if(scenes.length)draw(offset);$('downloadSubsBtn').disabled=false;}catch(err){importedSubs=null;$('srtStatus').textContent='Error al leer SRT: '+err.message;}});
 function makeSubtitleChunks(){
- const text=$('script').value.trim();
- if(!text)return [];
- const words=cleanText(text).split(' ').filter(Boolean),dur=duration(); if(!words.length||!dur)return [];
- // display 1–5 words at a time, timed by word count, to make subtitles readable
- const chunks=[];let i=0,weighted=0;const weights=words.map(w=>Math.max(1,w.length));const total=weights.reduce((a,b)=>a+b,0);
- while(i<words.length){let j=i,chars=0;while(j<words.length&&j-i<5&&(chars+words[j].length+(j>i?1:0))<=31){chars+=words[j].length+(j>i?1:0);j++;}if(j===i)j++;
-  const before=weights.slice(0,i).reduce((a,b)=>a+b,0),through=weights.slice(0,j).reduce((a,b)=>a+b,0);
-  chunks.push({text:words.slice(i,j).join(' '),start:dur*before/total,end:dur*through/total});i=j;
- }
+ if(importedSubs?.length)return importedSubs;
+ const text=$('script').value.trim();if(!text)return [];
+ const words=cleanText(text).split(' ').filter(Boolean),dur=duration();if(!words.length||!dur)return [];
+ const chunks=[];let i=0;const weights=words.map(w=>Math.max(1,w.length));const total=weights.reduce((a,b)=>a+b,0);let before=0;
+ while(i<words.length){let j=i,chars=0;while(j<words.length&&j-i<5&&(chars+words[j].length+(j>i?1:0))<=31){chars+=words[j].length+(j>i?1:0);j++;}if(j===i)j++;const through=weights.slice(0,j).reduce((a,b)=>a+b,0);chunks.push({text:words.slice(i,j).join(' '),start:dur*before/total,end:dur*through/total});before=through;i=j;}
  return chunks;
 }
 function tick(){
@@ -203,7 +204,7 @@ $('buildBtn').onclick=()=>{
  if(!duration()){status('Espera a que el navegador termine de leer la duración del audio.');return;}
  createScenes();subtitleCache=makeSubtitleChunks();
  $('placeholder').hidden=true;canvas.hidden=false;
- draw(0);$('playBtn').disabled=false;$('exportBtn').disabled=false;$('downloadSubsBtn').disabled=!$('script').value.trim();
+ draw(0);$('playBtn').disabled=false;$('exportBtn').disabled=false;$('downloadSubsBtn').disabled=!$('script').value.trim()&&!importedSubs;
  status(`Montaje preparado: ${scenes.length} escenas. Revisa la previsualización.`);progress(0);
 };
 $('ratio').addEventListener('change',()=>{resizeCanvas();if(scenes.length)draw(offset);});
@@ -212,7 +213,7 @@ $('substyle').addEventListener('change',()=>{if(scenes.length)draw(offset);});
 $('playBtn').onclick=play;
 $('pauseBtn').onclick=()=>{if(audioEl)offset=audioEl.currentTime;stop();draw(offset);status(`Pausado en ${fmt(offset)}.`);};
 $('downloadSubsBtn').onclick=()=>{
- const d=duration(),text=$('script').value.trim();if(!text||!d)return;
+ const d=duration(),text=$('script').value.trim();if((!text&&!importedSubs)||!d)return;
  const chunks=makeSubtitleChunks();const time=s=>{const ms=Math.floor((s%1)*1000),tot=Math.floor(s);return `${String(Math.floor(tot/3600)).padStart(2,'0')}:${String(Math.floor(tot%3600/60)).padStart(2,'0')}:${String(tot%60).padStart(2,'0')},${String(ms).padStart(3,'0')}`;};
  const srt=chunks.map((c,i)=>`${i+1}\n${time(c.start)} --> ${time(c.end)}\n${c.text}\n`).join('\n');
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([srt],{type:'text/plain;charset=utf-8'}));a.download='subtitulos.srt';a.click();URL.revokeObjectURL(a.href);
@@ -260,7 +261,7 @@ $('exportBtn').onclick=async()=>{
    }catch(err){status('El vídeo se creó, pero el navegador no inició la descarga: '+err.message+'. Revisa si bloqueó las descargas.');}
    finally{exportBusy=false;$('exportBtn').disabled=false;stream.getTracks().forEach(t=>t.stop());mixed?.getTracks().forEach(t=>t.stop());audioCtx?.close().catch(()=>{});}
   };
-  exportBusy=true;$('exportBtn').disabled=true;status(`Preparando exportación ${chosen.label}. El vídeo se graba en tiempo real; no cierres esta pestaña…`);progress(0);
+  exportBusy=true;$('exportBtn').disabled=true;status(`Preparando exportación ${chosen.label}. El vídeo se codifica en tiempo real; no cierres esta pestaña y mantenla visible…`);progress(0);
   await audioCtx.resume();
   audioEl.pause(); if(musicEl)musicEl.pause(); audioEl.currentTime=0; offset=0;
   rec.start(1000);
@@ -279,7 +280,7 @@ $('exportBtn').onclick=async()=>{
   status('No se pudo exportar: '+(err.message||err)+'. Prueba con Chrome/Edge actualizado, permite descargas y vuelve a pulsar Exportar vídeo.');
  }
 };
-$('resetBtn').onclick=()=>{stop();imageFiles=[];images=[];imageTags=[];scenes=[];offset=0;$('voice').value='';$('images').value='';$('music').value='';$('sfx').value='';$('script').value='';$('imageList').innerHTML='';$('sceneInfo').textContent='Las escenas se crearán cuando cargues tus archivos.';$('placeholder').hidden=false;canvas.hidden=true;$('playBtn').disabled=true;$('pauseBtn').disabled=true;$('exportBtn').disabled=true;$('downloadSubsBtn').disabled=true;status('Proyecto reiniciado.');progress(0);};
+$('resetBtn').onclick=()=>{stop();imageFiles=[];images=[];imageTags=[];scenes=[];offset=0;$('voice').value='';$('images').value='';$('music').value='';$('sfx').value='';$('script').value='';$('srtFile').value='';importedSubs=null;$('srtStatus').textContent='Importa un SRT sincronizado con la narración para usar sus tiempos reales.';$('imageList').innerHTML='';$('sceneInfo').textContent='Las escenas se crearán cuando cargues tus archivos.';$('placeholder').hidden=false;canvas.hidden=true;$('playBtn').disabled=true;$('pauseBtn').disabled=true;$('exportBtn').disabled=true;$('downloadSubsBtn').disabled=true;status('Proyecto reiniciado.');progress(0);};
 })();
 </script>
 </body>
