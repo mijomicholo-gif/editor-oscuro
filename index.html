@@ -47,14 +47,14 @@ footer{max-width:1180px;margin:0 auto;padding:0 18px 28px;color:var(--muted);fon
 <div class="panel">
 <h3>02 · Previsualización</h3>
 <div class="preview" id="previewWrap"><div class="placeholder" id="placeholder">Tu vídeo aparecerá aquí.<br><br>1. Sube la narración<br>2. Selecciona las imágenes<br>3. Pulsa “Crear montaje automático”</div><canvas id="canvas" width="1280" height="720" hidden></canvas></div>
-<div class="actions" style="margin-top:12px"><button id="exportBtn" class="primary" disabled>Exportar vídeo</button><button id="downloadSubsBtn" disabled>Descargar subtítulos SRT</button></div>
-<p class="help">El editor intentará exportar MP4 si tu navegador lo admite. Si no, descargará WebM y te avisará; cambiar la extensión a .mp4 no lo convierte.</p>
+<div class="actions" style="margin-top:12px"><button id="exportBtn" class="primary" disabled>Exportar vídeo</button><button id="downloadSubsBtn" disabled>Descargar subtítulos SRT</button><button id="promptsBtn" disabled>Generar prompts IA</button></div>
+<p class="help">MP4 solo si el navegador confirma compatibilidad real. Si no, se indicará WebM sin cambiar la extensión. La exportación codifica en tiempo real y puede tardar lo mismo que el vídeo.</p><p class="help">“Generar prompts IA” crea instrucciones visuales por escena para usar con tu generador de imágenes. La generación de imágenes no está integrada ni se envían tus archivos a ningún servicio.</p>
 <div class="section" style="margin-top:18px"><h3>03 · Escenas</h3><div id="sceneInfo" class="help">Las escenas se crearán cuando cargues tus archivos.</div></div>
 <div class="smallnote">Privacidad: los archivos se procesan dentro de esta pestaña y no se suben a un servidor por esta aplicación. No cierres la pestaña durante la exportación.</div>
 </div>
 </div>
 </main>
-<footer>Prototipo funcional inicial · No incorpora imágenes externas ni genera material visual ajeno a tus archivos.</footer>
+<footer>Editor Oscuro · Prototipo local. Los tiempos de escena usan el SRT cuando existe; sin SRT, los tiempos del guion son aproximados. La IA visual se prepara mediante prompts exportables.</footer>
 <script>
 (() => {
 const $=id=>document.getElementById(id);
@@ -88,26 +88,54 @@ const stopWords=new Set('el la los las un una unos unas de del al y o u en por p
 function tokens(text){return cleanText((text||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9ñ\s]/g,' ')).split(/\s+/).filter(w=>w.length>2&&!stopWords.has(w));}
 function createScenes(){
  const d=duration(); if(!d||!images.length)return false;
- const text=$('script').value.trim(), segments=scriptSegments(text);
- if(segments.length){
-  const tagTokens=imageTags.map(t=>new Set(tokens(t)));
-  const weights=segments.map(x=>Math.max(1,x.split(/\s+/).length)); const total=weights.reduce((a,b)=>a+b,0); let elapsed=0;
-  scenes=segments.map((seg,i)=>{
-   const segTokens=new Set(tokens(seg)); let best=-1,bestScore=0;
-   tagTokens.forEach((set,j)=>{let score=0;for(const token of segTokens)if(set.has(token))score++; if(score>bestScore){bestScore=score;best=j;}});
-   if(best<0)best=Math.min(images.length-1,Math.floor(i*images.length/segments.length));
-   const start=d*elapsed/total; elapsed+=weights[i]; const end=i===segments.length-1?d:d*elapsed/total;
-   return {img:images[best],file:imageFiles[best],start,end,idx:best,text:seg,matched:bestScore>0};
-  });
-  const matched=scenes.filter(x=>x.matched).length;
-  $('sceneInfo').textContent=`${scenes.length} fragmentos · ${fmt(d)} · ${matched} asignados por palabras clave; los demás usan el orden de imágenes. Duración estimada por cantidad de palabras.`;
- }else{
-  const n=images.length, sceneDur=d/n;
-  scenes=images.map((im,i)=>({img:im,file:imageFiles[i],start:i*sceneDur,end:(i+1)*sceneDur,idx:i}));
-  $('sceneInfo').textContent=`${n} escenas cronológicas · ${fmt(d)} · aprox. ${sceneDur.toFixed(1)} s por imagen. Añade el guion y palabras clave para sincronizar por tema.`;
+ const text=$('script').value.trim();
+ const tagTokens=imageTags.map(t=>new Set(tokens(t)));
+ function chooseImage(seg,i,total){
+  const segTokens=new Set(tokens(seg)); let best=-1,bestScore=0;
+  tagTokens.forEach((set,j)=>{let score=0;for(const token of segTokens)if(set.has(token))score++; if(score>bestScore){bestScore=score;best=j;}});
+  if(best<0)best=Math.min(images.length-1,Math.floor(i*images.length/Math.max(1,total)));
+  return {best,bestScore};
  }
+ if(importedSubs?.length){
+  // Agrupa subtítulos SRT en escenas de aproximadamente 4–5 s, sin alterar sus tiempos reales.
+  const cues=importedSubs.filter(c=>c.start<d&&c.end>0).map(c=>({...c,start:Math.max(0,c.start),end:Math.min(d,c.end)}));
+  const groups=[];let group=[];let groupStart=null;
+  for(const cue of cues){
+   if(group.length && cue.end-groupStart>4.8){groups.push(group);group=[];groupStart=null;}
+   if(!group.length)groupStart=cue.start;group.push(cue);
+  }
+  if(group.length)groups.push(group);
+  scenes=groups.map((g,i)=>{const seg=g.map(x=>x.text).join(' '), {best,bestScore}=chooseImage(seg,i,groups.length);return {img:images[best],file:imageFiles[best],start:g[0].start,end:g[g.length-1].end,idx:best,text:seg,matched:bestScore>0};});
+  // Close gaps between grouped scenes for visuals; the imported subtitle timestamps remain untouched.
+  scenes=scenes.map((sc,i)=>({...sc,start:i===0?0:sc.start,end:i===scenes.length-1?d:sc.end}));
+  $('sceneInfo').textContent=`${scenes.length} escenas guiadas por SRT · ${fmt(d)} · subtítulos mantienen sus marcas de tiempo. Las imágenes se asignan por palabras clave cuando es posible.`;
+ } else {
+  const segments=scriptSegments(text);
+  if(segments.length){
+   const weights=segments.map(x=>Math.max(1,x.split(/\s+/).length)); const total=weights.reduce((a,b)=>a+b,0); let elapsed=0;
+   scenes=segments.map((seg,i)=>{const {best,bestScore}=chooseImage(seg,i,segments.length);const start=d*elapsed/total;elapsed+=weights[i];const end=i===segments.length-1?d:d*elapsed/total;return {img:images[best],file:imageFiles[best],start,end,idx:best,text:seg,matched:bestScore>0};});
+   const matched=scenes.filter(x=>x.matched).length;
+   $('sceneInfo').textContent=`${scenes.length} escenas · ${fmt(d)} · ${matched} asignadas por palabras clave. Sin SRT, los tiempos se estiman por longitud del texto, no por análisis de voz.`;
+  }else{
+   const n=images.length, sceneDur=d/n;
+   scenes=images.map((im,i)=>({img:im,file:imageFiles[i],start:i*sceneDur,end:(i+1)*sceneDur,idx:i,text:imageTags[i]||imageFiles[i].name}));
+   $('sceneInfo').textContent=`${n} escenas cronológicas · ${fmt(d)} · aprox. ${sceneDur.toFixed(1)} s por imagen.`;
+  }
+ }
+ $('promptsBtn').disabled=!scenes.length;
  return true;
 }
+function downloadPrompts(){
+ if(!scenes.length)return;
+ const ratio=$('ratio').value==='portrait'?'vertical 9:16':'horizontal 16:9';
+ const style='cinematic dark documentary, photorealistic, dramatic chiaroscuro lighting, atmospheric fog, rich texture, historical accuracy, strong composition, deep shadows, restrained crimson accents, no text, no letters, no watermark';
+ const body=scenes.map((sc,i)=>`${String(i+1).padStart(2,'0')}. ESCENA ${fmt(sc.start)}–${fmt(sc.end)}\nFragmento del guion: ${sc.text||'Sin texto asignado'}\nPrompt visual: ${sc.text||imageTags[sc.idx]||'Escena documental oscura'}; ${style}; composición ${ratio}; sujeto principal claro, fondo coherente, detalle cinematográfico.\nEvitar: texto legible, marcas de agua, anatomía deformada, elementos modernos si la escena es histórica.\n`).join('\n');
+ const blob=new Blob([`EDITOR OSCURO — PROMPTS VISUALES PARA IA\nFormato: ${ratio}\nNota: prompts generados a partir del guion; revisar precisión histórica y coherencia antes de generar.\n\n${body}`],{type:'text/plain;charset=utf-8'});
+ const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='editor_oscuro_prompts_ia.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
+ status(`Se exportaron ${scenes.length} prompts visuales. Úsalos en tu generador de imágenes y después importa las imágenes aquí.`);
+}
+$('promptsBtn').addEventListener('click',downloadPrompts);
+
 function resizeCanvas(){
  if($('ratio').value==='portrait'){canvas.width=720;canvas.height=1280;}else{canvas.width=1280;canvas.height=720;}
 }
@@ -251,6 +279,8 @@ $('exportBtn').onclick=async()=>{
   rec.onstop=()=>{
    try{
     const type=rec.mimeType||chosen.mime;
+    const actualType=type.split(';')[0].toLowerCase();
+    if(chosen.ext==='mp4' && actualType!=='video/mp4')throw new Error('El navegador anunció MP4 pero produjo otro contenedor; se canceló la descarga para evitar un archivo mal etiquetado.');
     const blob=new Blob(chunks,{type});
     if(!blob.size){status('La exportación quedó vacía. Vuelve a intentarlo en Chrome o Edge y mantén la pestaña abierta.');return;}
     const url=URL.createObjectURL(blob), a=document.createElement('a');
@@ -280,7 +310,7 @@ $('exportBtn').onclick=async()=>{
   status('No se pudo exportar: '+(err.message||err)+'. Prueba con Chrome/Edge actualizado, permite descargas y vuelve a pulsar Exportar vídeo.');
  }
 };
-$('resetBtn').onclick=()=>{stop();imageFiles=[];images=[];imageTags=[];scenes=[];offset=0;$('voice').value='';$('images').value='';$('music').value='';$('sfx').value='';$('script').value='';$('srtFile').value='';importedSubs=null;$('srtStatus').textContent='Importa un SRT sincronizado con la narración para usar sus tiempos reales.';$('imageList').innerHTML='';$('sceneInfo').textContent='Las escenas se crearán cuando cargues tus archivos.';$('placeholder').hidden=false;canvas.hidden=true;$('playBtn').disabled=true;$('pauseBtn').disabled=true;$('exportBtn').disabled=true;$('downloadSubsBtn').disabled=true;status('Proyecto reiniciado.');progress(0);};
+$('resetBtn').onclick=()=>{stop();imageFiles=[];images=[];imageTags=[];scenes=[];offset=0;$('voice').value='';$('images').value='';$('music').value='';$('sfx').value='';$('script').value='';$('srtFile').value='';importedSubs=null;$('srtStatus').textContent='Importa un SRT sincronizado con la narración para usar sus tiempos reales.';$('imageList').innerHTML='';$('sceneInfo').textContent='Las escenas se crearán cuando cargues tus archivos.';$('placeholder').hidden=false;canvas.hidden=true;$('playBtn').disabled=true;$('pauseBtn').disabled=true;$('exportBtn').disabled=true;$('downloadSubsBtn').disabled=true;$('promptsBtn').disabled=true;status('Proyecto reiniciado.');progress(0);};
 })();
 </script>
 </body>
