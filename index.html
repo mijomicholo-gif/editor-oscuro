@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor Oscuro — montaje automático</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0d12;--panel:#141821;--panel2:#1b2230;--line:#2b3445;--text:#f1f4f9;--muted:#a9b3c5;--accent:#c72d3c;--accent2:#ef5360}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#171c28 0,#0b0d12 55%);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:22px max(18px,calc((100vw - 1180px)/2));border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px;background:#0b0d12dd;position:sticky;top:0;z-index:5;backdrop-filter:blur(12px)}
+.brand{display:flex;gap:12px;align-items:center}.logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#a20f24,#ed4a50);display:grid;place-items:center;font-size:22px;font-weight:900}.brand h1{font-size:18px;margin:0}.brand p{margin:2px 0 0;color:var(--muted);font-size:12px}
+main{max-width:1180px;margin:auto;padding:24px 18px 60px}.intro h2{font-size:clamp(24px,4vw,36px);line-height:1.12;margin:0 0 8px}.intro p{color:var(--muted);max-width:760px;margin:0 0 22px}
+.layout{display:grid;grid-template-columns:1fr 1.1fr;gap:18px}.panel{background:linear-gradient(180deg,#171c26,#11151d);border:1px solid var(--line);border-radius:16px;padding:18px;min-width:0}.panel h3{font-size:16px;margin:0 0 14px}.section{margin-bottom:16px}.section:last-child{margin-bottom:0}label{display:block;font-weight:650;font-size:13px;margin-bottom:7px}.help{font-size:12px;color:var(--muted);margin-top:5px}
+input[type=file],textarea,input[type=text],select{width:100%;background:#0d1118;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
+textarea{resize:vertical;min-height:120px}input[type=file]{font-size:12px;padding:9px}input[type=range]{width:100%;accent-color:var(--accent2)}
+button{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:10px;padding:10px 13px;font-weight:700;cursor:pointer}button:hover{border-color:#7b879b}button.primary{background:linear-gradient(135deg,#a20f24,#d83845);border-color:#e94a58}button:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;gap:8px;flex-wrap:wrap}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.check{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}.check input{accent-color:var(--accent2)}
+.preview{background:#050609;border:1px solid var(--line);border-radius:12px;overflow:hidden;display:grid;place-items:center;min-height:240px;position:relative}.preview canvas{display:block;max-width:100%;max-height:430px;width:auto;height:auto;background:#050609}.placeholder{padding:35px;text-align:center;color:var(--muted)}.status{font-size:12px;color:var(--muted);margin-top:10px;min-height:18px}.meter{height:5px;background:#252c38;border-radius:9px;overflow:hidden;margin-top:8px}.meter div{height:100%;width:0;background:var(--accent2);transition:width .2s}
+.list{display:flex;flex-direction:column;gap:7px;margin-top:10px}.item{display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:#0d1118;border:1px solid var(--line);padding:8px;border-radius:9px}.thumb{width:44px;height:36px;object-fit:cover;border-radius:5px;background:#222}.item .name{font-size:12px;flex:1;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.item .tags{width:100%;font-size:12px;padding:7px}.item button{padding:4px 8px;font-size:12px}
+.smallnote{border-left:3px solid #c72d3c;padding:10px 12px;background:#21151a;border-radius:0 8px 8px 0;color:#d9c6ca;font-size:12px}
+footer{max-width:1180px;margin:0 auto;padding:0 18px 28px;color:var(--muted);font-size:12px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}header{position:static}.preview{min-height:190px}.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><div class="brand"><div class="logo">E</div><div><h1>EDITOR OSCURO</h1><p>Montaje automático · tus archivos, tus reglas</p></div></div><div class="actions"><button id="resetBtn">Nuevo proyecto</button></div></header>
+<main>
+<section class="intro"><h2>De tus imágenes y tu voz<br>al primer montaje.</h2><p>Sube la narración, las imágenes en orden y opcionalmente el guion. La herramienta puede relacionar fragmentos del guion con palabras clave que añadas a cada imagen, anima las imágenes con movimiento suave y crea subtítulos aproximados. También permite elegir horizontal 16:9 o vertical 9:16.</p></section>
+<div class="layout">
+<div class="panel">
+<h3>01 · Materiales del proyecto</h3>
+<div class="section"><label for="voice">Narración principal (obligatoria)</label><input id="voice" type="file" accept="audio/*"><div class="help">MP3, WAV, M4A u otro audio compatible con tu navegador.</div></div>
+<div class="section"><label for="images">Imágenes en orden</label><input id="images" type="file" accept="image/*" multiple><div class="help">Selecciona varias imágenes. Añade palabras clave a cada una para que el montaje elija imágenes relacionadas con cada fragmento del guion; puedes reordenarlas abajo.</div><div id="imageList" class="list"></div><div class="help">Ejemplo de palabras clave: templo, sacerdote, ritual, noche. Separa varias palabras con comas. Si las dejas vacías, esa imagen se usará como alternativa cronológica.</div></div>
+<div class="section"><label for="script">Guion / texto de narración (opcional)</label><textarea id="script" placeholder="Pega aquí el guion completo. Se usará para crear subtítulos aproximados. Para mayor precisión, el texto debe coincidir con el audio."></textarea></div>
+<div class="row">
+<div class="section"><label for="music">Música propia (opcional)</label><input id="music" type="file" accept="audio/*"></div>
+<div class="section"><label for="sfx">Efectos propios (opcional)</label><input id="sfx" type="file" accept="audio/*" multiple></div>
+</div>
+<div class="section"><label for="ratio">Formato de vídeo</label><select id="ratio"><option value="landscape">YouTube horizontal · 16:9</option><option value="portrait">Shorts / Reels · 9:16</option></select></div>
+<div class="row">
+<div class="section"><label for="motion">Intensidad del movimiento</label><select id="motion"><option value="subtle">Sutil y cinematográfico</option><option value="medium" selected>Dinámico</option><option value="strong">Intenso</option></select></div>
+<div class="section"><label for="substyle">Estilo de subtítulos</label><select id="substyle"><option value="classic">Blanco con contorno negro</option><option value="red">Palabras destacadas en rojo</option></select></div>
+</div>
+<div class="section"><label for="musicVol">Volumen de música: <span id="volLabel">12%</span></label><input id="musicVol" type="range" min="0" max="35" value="12"></div>
+<div class="actions"><button id="buildBtn" class="primary">Crear montaje automático</button><button id="playBtn" disabled>▶ Reproducir</button><button id="pauseBtn" disabled>Ⅱ Pausar</button></div>
+<div id="status" class="status">Listo para cargar tus archivos.</div><div class="meter"><div id="progress"></div></div>
+</div>
+<div class="panel">
+<h3>02 · Previsualización</h3>
+<div class="preview" id="previewWrap"><div class="placeholder" id="placeholder">Tu vídeo aparecerá aquí.<br><br>1. Sube la narración<br>2. Selecciona las imágenes<br>3. Pulsa “Crear montaje automático”</div><canvas id="canvas" width="1280" height="720" hidden></canvas></div>
+<div class="actions" style="margin-top:12px"><button id="exportBtn" class="primary" disabled>Exportar vídeo</button><button id="downloadSubsBtn" disabled>Descargar subtítulos SRT</button></div>
+<p class="help">El editor intentará exportar MP4 si tu navegador lo admite. Si no, descargará WebM y te avisará; cambiar la extensión a .mp4 no lo convierte.</p>
+<div class="section" style="margin-top:18px"><h3>03 · Escenas</h3><div id="sceneInfo" class="help">Las escenas se crearán cuando cargues tus archivos.</div></div>
+<div class="smallnote">Privacidad: los archivos se procesan dentro de esta pestaña y no se suben a un servidor por esta aplicación. No cierres la pestaña durante la exportación.</div>
+</div>
+</div>
+</main>
+<footer>Prototipo funcional inicial · No incorpora imágenes externas ni genera material visual ajeno a tus archivos.</footer>
+<script>
+(() => {
+const $=id=>document.getElementById(id);
+const canvas=$('canvas'), ctx=canvas.getContext('2d');
+let imageFiles=[], images=[], imageTags=[], audioEl=null, audioUrl=null, musicEl=null, musicUrl=null, sfxEls=[], scenes=[], raf=0, playing=false, startAt=0, offset=0, exportBusy=false, lastDrawAt=0;
+const status=t=>$('status').textContent=t;
+const progress=v=>$('progress').style.width=Math.max(0,Math.min(100,v))+'%';
+$('musicVol').addEventListener('input',()=>{ $('volLabel').textContent=$('musicVol').value+'%'; if(musicEl)musicEl.volume=Number($('musicVol').value)/100; });
+function fmt(t){t=Math.max(0,t||0);return `${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;}
+function duration(){return audioEl && Number.isFinite(audioEl.duration)?audioEl.duration:0;}
+function cleanText(s){return s.replace(/\s+/g,' ').trim();}
+function makeSubtitles(text,dur){
+ const words=cleanText(text).split(' ').filter(Boolean); if(!words.length||!dur)return [];
+ // Estimated word timing weighted by word length; use sentence pauses as a basic approximation.
+ const total=words.reduce((a,w)=>a+Math.max(1,w.length),0); let acc=0;
+ return words.map(w=>{const st=dur*acc/total;acc+=Math.max(1,w.length);const en=dur*acc/total;return {text:w,start:st,end:en};});
+}
+function scriptSegments(text){
+ const clean=cleanText(text||''); if(!clean)return [];
+ const sentences=(clean.match(/[^.!?。！？]+[.!?。！？]?/g)||[clean]).map(x=>x.trim()).filter(Boolean);
+ const out=[]; let carry=[];
+ for(const sentence of sentences){
+  const words=sentence.split(/\s+/).filter(Boolean);
+  for(const word of words){carry.push(word); if(carry.length>=14){out.push(carry.join(' '));carry=[];}}
+  if(carry.length>=6){out.push(carry.join(' '));carry=[];}
+ }
+ if(carry.length)out.push(carry.join(' '));
+ return out;
+}
+const stopWords=new Set('el la los las un una unos unas de del al y o u en por para con sin sobre entre que se es son fue era como más muy su sus lo le les ya no sí pero porque cuando donde después antes según esta este estos estas aquel aquella hay había han ha ser estar también mientras hasta desde contra cada todo toda todos todas'.split(' '));
+function tokens(text){return cleanText((text||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9ñ\s]/g,' ')).split(/\s+/).filter(w=>w.length>2&&!stopWords.has(w));}
+function createScenes(){
+ const d=duration(); if(!d||!images.length)return false;
+ const text=$('script').value.trim(), segments=scriptSegments(text);
+ if(segments.length){
+  const tagTokens=imageTags.map(t=>new Set(tokens(t)));
+  const weights=segments.map(x=>Math.max(1,x.split(/\s+/).length)); const total=weights.reduce((a,b)=>a+b,0); let elapsed=0;
+  scenes=segments.map((seg,i)=>{
+   const segTokens=new Set(tokens(seg)); let best=-1,bestScore=0;
+   tagTokens.forEach((set,j)=>{let score=0;for(const token of segTokens)if(set.has(token))score++; if(score>bestScore){bestScore=score;best=j;}});
+   if(best<0)best=Math.min(images.length-1,Math.floor(i*images.length/segments.length));
+   const start=d*elapsed/total; elapsed+=weights[i]; const end=i===segments.length-1?d:d*elapsed/total;
+   return {img:images[best],file:imageFiles[best],start,end,idx:best,text:seg,matched:bestScore>0};
+  });
+  const matched=scenes.filter(x=>x.matched).length;
+  $('sceneInfo').textContent=`${scenes.length} fragmentos · ${fmt(d)} · ${matched} asignados por palabras clave; los demás usan el orden de imágenes. Duración estimada por cantidad de palabras.`;
+ }else{
+  const n=images.length, sceneDur=d/n;
+  scenes=images.map((im,i)=>({img:im,file:imageFiles[i],start:i*sceneDur,end:(i+1)*sceneDur,idx:i}));
+  $('sceneInfo').textContent=`${n} escenas cronológicas · ${fmt(d)} · aprox. ${sceneDur.toFixed(1)} s por imagen. Añade el guion y palabras clave para sincronizar por tema.`;
+ }
+ return true;
+}
+function resizeCanvas(){
+ if($('ratio').value==='portrait'){canvas.width=720;canvas.height=1280;}else{canvas.width=1280;canvas.height=720;}
+}
+function drawCover(img,scale=1,panX=0,panY=0){
+ const W=canvas.width,H=canvas.height,ir=img.width/img.height,cr=W/H;
+ let dw,dh;if(ir>cr){dh=H*scale;dw=dh*ir;}else{dw=W*scale;dh=dw/ir;}
+ const x=(W-dw)/2+panX*(W-dw),y=(H-dh)/2+panY*(H-dh);
+ ctx.drawImage(img,x,y,dw,dh);
+}
+function currentScene(t){return scenes.find(s=>t>=s.start&&t<s.end)||scenes[scenes.length-1];}
+function draw(t){
+ if(!scenes.length)return;
+ const s=currentScene(t);if(!s)return;
+ const span=Math.max(.01,s.end-s.start),p=Math.max(0,Math.min(1,(t-s.start)/span));
+ const mode=$('motion').value, amt=mode==='subtle'?.035:mode==='strong'?.16:.085;
+ const scale=1+amt*p;
+ ctx.fillStyle='#050609';ctx.fillRect(0,0,canvas.width,canvas.height);
+ drawCover(s.img,scale,Math.sin(p*Math.PI*.8)*.018,Math.cos(p*Math.PI*.65)*.012);
+ // dark cinematic grade and subtle vignette
+ ctx.fillStyle='rgba(5,7,12,.22)';ctx.fillRect(0,0,canvas.width,canvas.height);
+ const g=ctx.createRadialGradient(canvas.width/2,canvas.height/2,canvas.height*.15,canvas.width/2,canvas.height/2,canvas.width*.68);
+ g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.58)');ctx.fillStyle=g;ctx.fillRect(0,0,canvas.width,canvas.height);
+ const subs=makeSubtitleChunks();
+ const sub=subs.find(x=>t>=x.start&&t<=x.end);
+ if(sub){const text=sub.text;const fs=Math.max(24,Math.min(canvas.width*.043,canvas.height*.06));ctx.font=`800 ${fs}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';
+  const y=canvas.height*.84;ctx.lineWidth=Math.max(3,fs*.15);ctx.strokeStyle='rgba(0,0,0,.96)';ctx.fillStyle='#fff';
+  if($('substyle').value==='red'&&text.length>5){ctx.strokeText(text,canvas.width/2,y);ctx.fillStyle='#ff4958';}
+  ctx.strokeText(text,canvas.width/2,y);ctx.fillText(text,canvas.width/2,y);
+ }
+ // tiny progress line
+ ctx.fillStyle='rgba(255,255,255,.16)';ctx.fillRect(0,canvas.height-5,canvas.width,5);
+ ctx.fillStyle='#d83747';ctx.fillRect(0,canvas.height-5,canvas.width*Math.min(1,t/duration()),5);
+}
+let subtitleCache=[];
+function makeSubtitleChunks(){
+ const text=$('script').value.trim();
+ if(!text)return [];
+ const words=cleanText(text).split(' ').filter(Boolean),dur=duration(); if(!words.length||!dur)return [];
+ // display 1–5 words at a time, timed by word count, to make subtitles readable
+ const chunks=[];let i=0,weighted=0;const weights=words.map(w=>Math.max(1,w.length));const total=weights.reduce((a,b)=>a+b,0);
+ while(i<words.length){let j=i,chars=0;while(j<words.length&&j-i<5&&(chars+words[j].length+(j>i?1:0))<=31){chars+=words[j].length+(j>i?1:0);j++;}if(j===i)j++;
+  const before=weights.slice(0,i).reduce((a,b)=>a+b,0),through=weights.slice(0,j).reduce((a,b)=>a+b,0);
+  chunks.push({text:words.slice(i,j).join(' '),start:dur*before/total,end:dur*through/total});i=j;
+ }
+ return chunks;
+}
+function tick(){
+ if(!playing)return;
+ // La narración es el reloj maestro. No reasignar currentTime en cada fotograma:
+ // hacerlo provoca saltos de audio y hace que la música suene entrecortada.
+ const t=audioEl ? audioEl.currentTime : offset+(performance.now()-startAt)/1000;
+ if(t>=duration() || (audioEl && audioEl.ended)){offset=duration();stop();draw(duration());progress(100);return;}
+ // Limitar el dibujo a unos 30 FPS reduce la carga de CPU sin alterar el audio.
+ const now=performance.now();
+ if(now-lastDrawAt>=33){draw(t);progress(t/Math.max(.01,duration())*100);lastDrawAt=now;}
+ raf=requestAnimationFrame(tick);
+}
+function stop(){playing=false;cancelAnimationFrame(raf);$('playBtn').disabled=!scenes.length;$('pauseBtn').disabled=true;if(audioEl){audioEl.pause();}if(musicEl)musicEl.pause();sfxEls.forEach(a=>a.pause());}
+function play(){
+ if(!scenes.length||!audioEl)return;
+ if(offset>=duration())offset=0;
+ audioEl.currentTime=offset;
+ if(musicEl){musicEl.currentTime=offset%Math.max(1,musicEl.duration||1);musicEl.volume=Number($('musicVol').value)/100;}
+ playing=true;startAt=performance.now();lastDrawAt=0;
+ const voicePromise=audioEl.play();
+ if(musicEl)musicEl.play().catch(()=>status('La narración comenzó, pero el navegador bloqueó la música. Pulsa reproducir de nuevo o vuelve a cargar la música.'));
+ if(voicePromise && voicePromise.catch)voicePromise.catch(()=>{playing=false;status('El navegador no pudo reproducir la narración. Prueba con MP3 o WAV.');});
+ $('playBtn').disabled=true;$('pauseBtn').disabled=false;tick();
+}
+$('images').addEventListener('change',async e=>{
+ imageFiles=Array.from(e.target.files||[]);images=[];imageTags=imageFiles.map(f=>f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim());
+ for(const f of imageFiles){const u=URL.createObjectURL(f);const im=new Image();im.src=u;await im.decode().catch(()=>{});images.push(im);}
+ renderImageList();status(`${images.length} imágenes cargadas.`);
+});
+function renderImageList(){
+ const list=$('imageList');list.innerHTML='';
+ imageFiles.forEach((f,i)=>{const row=document.createElement('div');row.className='item';const im=images[i];const th=document.createElement('img');th.className='thumb';th.src=im?.src||'';const name=document.createElement('div');name.className='name';name.textContent=`${i+1}. ${f.name}`;const up=document.createElement('button');up.textContent='↑';up.title='Mover arriba';up.disabled=i===0;up.onclick=()=>moveImage(i,-1);const down=document.createElement('button');down.textContent='↓';down.title='Mover abajo';down.disabled=i===imageFiles.length-1;down.onclick=()=>moveImage(i,1);const tags=document.createElement('input');tags.className='tags';tags.type='text';tags.placeholder='Palabras clave: templo, ritual, ángel…';tags.value=imageTags[i]||'';tags.setAttribute('aria-label',`Palabras clave de ${f.name}`);tags.addEventListener('input',()=>{imageTags[i]=tags.value;});tags.addEventListener('change',()=>{if(duration()&&images.length)createScenes();});row.append(th,name,up,down,tags);list.append(row);});
+}
+function moveImage(i,dir){const j=i+dir;[imageFiles[i],imageFiles[j]]=[imageFiles[j],imageFiles[i]];[images[i],images[j]]=[images[j],images[i]];[imageTags[i],imageTags[j]]=[imageTags[j],imageTags[i]];renderImageList();if(duration())createScenes();}
+$('voice').addEventListener('change',()=>{
+ const f=$('voice').files[0];if(!f)return;
+ if(audioUrl)URL.revokeObjectURL(audioUrl);audioUrl=URL.createObjectURL(f);if(audioEl)audioEl.remove();audioEl=new Audio(audioUrl);audioEl.preload='metadata';
+ audioEl.addEventListener('loadedmetadata',()=>{status(`Narración cargada · ${fmt(duration())}.`);if(images.length)createScenes();});
+ audioEl.addEventListener('ended',()=>{if(playing){offset=duration();stop();draw(duration());progress(100);status('Narración terminada.');}});
+ audioEl.addEventListener('error',()=>status('No se pudo leer el audio. Prueba con MP3 o WAV.'));
+});
+$('music').addEventListener('change',()=>{const f=$('music').files[0];if(!f)return;if(musicEl)musicEl.pause();if(musicUrl)URL.revokeObjectURL(musicUrl);musicUrl=URL.createObjectURL(f);musicEl=new Audio(musicUrl);musicEl.preload='auto';musicEl.loop=true;musicEl.volume=Number($('musicVol').value)/100;});
+$('sfx').addEventListener('change',()=>{sfxEls=Array.from($('sfx').files||[]).map(f=>{const a=new Audio(URL.createObjectURL(f));a.volume=.5;return a;});});
+$('buildBtn').onclick=()=>{
+ if(!audioEl||!$('voice').files.length){status('Primero sube la narración.');return;}
+ if(!images.length){status('Sube al menos una imagen.');return;}
+ resizeCanvas();
+ if(!duration()){status('Espera a que el navegador termine de leer la duración del audio.');return;}
+ createScenes();subtitleCache=makeSubtitleChunks();
+ $('placeholder').hidden=true;canvas.hidden=false;
+ draw(0);$('playBtn').disabled=false;$('exportBtn').disabled=false;$('downloadSubsBtn').disabled=!$('script').value.trim();
+ status(`Montaje preparado: ${scenes.length} escenas. Revisa la previsualización.`);progress(0);
+};
+$('ratio').addEventListener('change',()=>{resizeCanvas();if(scenes.length)draw(offset);});
+$('motion').addEventListener('change',()=>{if(scenes.length)draw(offset);});
+$('substyle').addEventListener('change',()=>{if(scenes.length)draw(offset);});
+$('playBtn').onclick=play;
+$('pauseBtn').onclick=()=>{if(audioEl)offset=audioEl.currentTime;stop();draw(offset);status(`Pausado en ${fmt(offset)}.`);};
+$('downloadSubsBtn').onclick=()=>{
+ const d=duration(),text=$('script').value.trim();if(!text||!d)return;
+ const chunks=makeSubtitleChunks();const time=s=>{const ms=Math.floor((s%1)*1000),tot=Math.floor(s);return `${String(Math.floor(tot/3600)).padStart(2,'0')}:${String(Math.floor(tot%3600/60)).padStart(2,'0')}:${String(tot%60).padStart(2,'0')},${String(ms).padStart(3,'0')}`;};
+ const srt=chunks.map((c,i)=>`${i+1}\n${time(c.start)} --> ${time(c.end)}\n${c.text}\n`).join('\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([srt],{type:'text/plain;charset=utf-8'}));a.download='subtitulos.srt';a.click();URL.revokeObjectURL(a.href);
+};
+$('exportBtn').onclick=async()=>{
+ if(exportBusy||!scenes.length||!audioEl)return;
+ if(!window.MediaRecorder||!canvas.captureStream){status('Tu navegador no admite la exportación de vídeo. Usa Chrome o Edge actualizado.');return;}
+ const stream=canvas.captureStream(30);
+ let audioCtx=null, dest=null, rec=null, mixed=null, musicSource=null;
+ try{
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  dest=audioCtx.createMediaStreamDestination();
+  const voiceSrc=audioCtx.createMediaElementSource(audioEl);
+  voiceSrc.connect(dest); voiceSrc.connect(audioCtx.destination);
+  if(musicEl){
+   musicEl.pause(); musicEl.currentTime=0;
+   musicEl.volume=Number($('musicVol').value)/100;
+   musicSource=audioCtx.createMediaElementSource(musicEl);
+   musicSource.connect(dest); musicSource.connect(audioCtx.destination);
+  }
+  mixed=new MediaStream([...stream.getVideoTracks(),...dest.stream.getAudioTracks()]);
+  const choices=[
+   {mime:'video/mp4;codecs=avc1.42E01E,mp4a.40.2',ext:'mp4',label:'MP4'},
+   {mime:'video/mp4',ext:'mp4',label:'MP4'},
+   {mime:'video/webm;codecs=vp9,opus',ext:'webm',label:'WebM'},
+   {mime:'video/webm;codecs=vp8,opus',ext:'webm',label:'WebM'},
+   {mime:'video/webm',ext:'webm',label:'WebM'}
+  ];
+  const chosen=choices.find(x=>MediaRecorder.isTypeSupported(x.mime));
+  if(!chosen)throw new Error('Este navegador no ofrece un formato compatible para grabar. Prueba Chrome o Edge actualizado.');
+  rec=new MediaRecorder(mixed,{mimeType:chosen.mime,videoBitsPerSecond:6000000});
+  const chunks=[];
+  rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  rec.onerror=e=>{status('Error durante la grabación: '+(e.error?.message||'el navegador interrumpió la exportación'));};
+  rec.onstop=()=>{
+   try{
+    const type=rec.mimeType||chosen.mime;
+    const blob=new Blob(chunks,{type});
+    if(!blob.size){status('La exportación quedó vacía. Vuelve a intentarlo en Chrome o Edge y mantén la pestaña abierta.');return;}
+    const url=URL.createObjectURL(blob), a=document.createElement('a');
+    a.href=url; a.download='video_montaje.'+chosen.ext; a.style.display='none'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),120000);
+    status(`Exportación terminada: ${chosen.label} (${(blob.size/1024/1024).toFixed(1)} MB). Revisa la carpeta Descargas.`);
+    progress(100);
+   }catch(err){status('El vídeo se creó, pero el navegador no inició la descarga: '+err.message+'. Revisa si bloqueó las descargas.');}
+   finally{exportBusy=false;$('exportBtn').disabled=false;stream.getTracks().forEach(t=>t.stop());mixed?.getTracks().forEach(t=>t.stop());audioCtx?.close().catch(()=>{});}
+  };
+  exportBusy=true;$('exportBtn').disabled=true;status(`Preparando exportación ${chosen.label}. El vídeo se graba en tiempo real; no cierres esta pestaña…`);progress(0);
+  await audioCtx.resume();
+  audioEl.pause(); if(musicEl)musicEl.pause(); audioEl.currentTime=0; offset=0;
+  rec.start(1000);
+  if(musicEl)musicEl.play().catch(()=>{});
+  await audioEl.play();
+  const exportTick=()=>{
+   if(!exportBusy)return;
+   const t=audioEl.currentTime||0;
+   draw(t); progress(duration()?t/duration()*100:0);
+   if(t>=duration()||audioEl.ended){audioEl.pause();musicEl?.pause();playing=false;if(rec.state!=='inactive')rec.stop();return;}
+   requestAnimationFrame(exportTick);
+  };
+  requestAnimationFrame(exportTick);
+ }catch(err){
+  exportBusy=false;$('exportBtn').disabled=false;stream.getTracks().forEach(t=>t.stop());mixed?.getTracks().forEach(t=>t.stop());audioCtx?.close().catch(()=>{});
+  status('No se pudo exportar: '+(err.message||err)+'. Prueba con Chrome/Edge actualizado, permite descargas y vuelve a pulsar Exportar vídeo.');
+ }
+};
+$('resetBtn').onclick=()=>{stop();imageFiles=[];images=[];imageTags=[];scenes=[];offset=0;$('voice').value='';$('images').value='';$('music').value='';$('sfx').value='';$('script').value='';$('imageList').innerHTML='';$('sceneInfo').textContent='Las escenas se crearán cuando cargues tus archivos.';$('placeholder').hidden=false;canvas.hidden=true;$('playBtn').disabled=true;$('pauseBtn').disabled=true;$('exportBtn').disabled=true;$('downloadSubsBtn').disabled=true;status('Proyecto reiniciado.');progress(0);};
+})();
+</script>
+</body>
+</html>
